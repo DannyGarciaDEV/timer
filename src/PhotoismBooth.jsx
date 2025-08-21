@@ -4,7 +4,7 @@ import "./PhotoismBooth.css";
 import kpopHeader from "./assets/kpop.webp";
 
 // Connect to backend
-const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000");
+const socket = io(import.meta.env.VITE_API_URL || "https://naratiger.up.railway.app");
 
 function PhotoismBooth() {
   const [queue, setQueue] = useState([]);
