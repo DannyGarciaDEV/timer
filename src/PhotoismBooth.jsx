@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import io from "socket.io-client";
 import axios from "axios";
 import "./PhotoismBooth.css";
 import kpopHeader from "./assets/kpop.webp";
 
-const socket = io(import.meta.env.VITE_API_URL || "https://naratiger.up.railway.app");
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 function PhotoismBooth() {
   const [queue, setQueue] = useState([]);
@@ -13,29 +12,37 @@ function PhotoismBooth() {
   const [isRunning, setIsRunning] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [showFullScreenMessage, setShowFullScreenMessage] = useState(false);
+
   const timerRef = useRef(null);
 
-  // Socket.IO updates
+  // Fetch initial state
   useEffect(() => {
-    socket.on("stateUpdate", ({ queue, currentUser, timeLeft }) => {
-      setQueue(queue);
-      setCurrentUser(currentUser);
-      setTimeLeft(timeLeft);
-    });
-    return () => socket.off("stateUpdate");
+    const fetchState = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/state`);
+        setQueue(res.data.queue);
+        setCurrentUser(res.data.currentUser);
+        setTimeLeft(res.data.timeLeft);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchState();
   }, []);
 
-  // Timer
+  // Timer interval
   useEffect(() => {
     if (isRunning && timeLeft > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
+      timerRef.current = setInterval(async () => {
+        setTimeLeft((prev) => {
           const newTime = prev - 1;
-          socket.emit("updateTime", newTime);
+          axios.post(`${API_URL}/updateTime`, { time: newTime }).catch(console.error);
           return newTime;
         });
       }, 1000);
-    } else clearInterval(timerRef.current);
+    } else {
+      clearInterval(timerRef.current);
+    }
     return () => clearInterval(timerRef.current);
   }, [isRunning, timeLeft]);
 
@@ -46,11 +53,12 @@ function PhotoismBooth() {
     }
   }, [timeLeft]);
 
-  // Add user via Axios
+  // Add user
   const addUser = async () => {
     if (!nameInput.trim()) return;
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL || "https://naratiger.up.railway.app"}/addUser`, { name: nameInput.trim() });
+      const res = await axios.post(`${API_URL}/addUser`, { name: nameInput.trim() });
+      setQueue(res.data.queue);
       setNameInput("");
       setShowFullScreenMessage(true);
       setTimeout(() => setShowFullScreenMessage(false), 5000);
@@ -59,14 +67,35 @@ function PhotoismBooth() {
     }
   };
 
-  const startNext = () => { socket.emit("startNext"); setIsRunning(false); };
+  // Start next user
+  const startNext = async () => {
+    try {
+      const res = await axios.post(`${API_URL}/startNext`);
+      setQueue(res.data.queue);
+      setCurrentUser(res.data.currentUser);
+      setTimeLeft(res.data.timeLeft);
+      setIsRunning(false);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const startTimer = () => setIsRunning(true);
   const pauseTimer = () => setIsRunning(false);
-  const formatTime = seconds => `${Math.floor(seconds/60)}:${(seconds%60).toString().padStart(2,"0")}`;
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div className="booth-container">
-      {showFullScreenMessage && <div className="fullscreen-message">Please follow the instructions of Photoism or ask KPN staff.</div>}
+      {showFullScreenMessage && (
+        <div className="fullscreen-message">
+          Please follow the instructions of Photoism or ask KPN staff.
+        </div>
+      )}
 
       <header className="booth-header">
         <img src={kpopHeader} alt="K-pop Header" className="kpop-header-img" />
@@ -79,15 +108,24 @@ function PhotoismBooth() {
           <div className="timer">{currentUser ? formatTime(timeLeft) : "Waiting..."}</div>
 
           <div className="controls">
-            <button onClick={startTimer} disabled={!currentUser || isRunning}>Start</button>
-            <button onClick={pauseTimer} disabled={!isRunning}>Pause</button>
+            <button onClick={startTimer} disabled={!currentUser || isRunning}>
+              Start
+            </button>
+            <button onClick={pauseTimer} disabled={!isRunning}>
+              Pause
+            </button>
             <button onClick={startNext}>Next</button>
           </div>
 
           <h3>Queue:</h3>
           <ul className="queue-list">{queue.map((name, idx) => <li key={idx}>{name}</li>)}</ul>
 
-          <input type="text" value={nameInput} onChange={e=>setNameInput(e.target.value)} placeholder="Enter your name" />
+          <input
+            type="text"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            placeholder="Enter your name"
+          />
           <button onClick={addUser}>Add</button>
         </div>
       </div>

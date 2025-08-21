@@ -1,62 +1,55 @@
 import express from "express";
-import { createServer } from "http";
-import { Server } from "socket.io";
-import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
-const httpServer = createServer(app);
+app.use(express.json()); // Parse JSON bodies
 
-const io = new Server(httpServer, {
-  cors: { origin: "*" },
-});
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
+// Queue and timer state
 let queue = [];
 let currentUser = null;
 let timeLeft = 600;
 
-// ===== REST API with Axios support =====
-app.get("/queue", (req, res) => {
+// ---- REST Endpoints ----
+
+// Get current state
+app.get("/state", (req, res) => {
   res.json({ queue, currentUser, timeLeft });
 });
 
+// Add user
 app.post("/addUser", (req, res) => {
   const { name } = req.body;
-  if (!name) return res.status(400).json({ error: "Name is required" });
+  if (!name) return res.status(400).json({ error: "Name required" });
+
   queue.push(name);
-  io.emit("stateUpdate", { queue, currentUser, timeLeft });
-  res.json({ success: true });
+  res.json({ queue, currentUser, timeLeft });
 });
 
-// ===== Socket.IO =====
-io.on("connection", (socket) => {
-  console.log("New client connected");
-
-  // Send current state
-  socket.emit("stateUpdate", { queue, currentUser, timeLeft });
-
-  socket.on("addUser", (name) => {
-    queue.push(name);
-    io.emit("stateUpdate", { queue, currentUser, timeLeft });
-  });
-
-  socket.on("startNext", () => {
-    currentUser = queue.shift() || null;
-    timeLeft = 600;
-    io.emit("stateUpdate", { queue, currentUser, timeLeft });
-  });
-
-  socket.on("updateTime", (time) => {
-    timeLeft = time;
-    io.emit("stateUpdate", { queue, currentUser, timeLeft });
-  });
-
-  socket.on("disconnect", () => console.log("Client disconnected"));
+// Start next user
+app.post("/startNext", (req, res) => {
+  currentUser = queue.shift() || null;
+  timeLeft = 600;
+  res.json({ queue, currentUser, timeLeft });
 });
 
-// ===== Start server =====
+// Update timer
+app.post("/updateTime", (req, res) => {
+  const { time } = req.body;
+  if (time == null) return res.status(400).json({ error: "Time required" });
+
+  timeLeft = time;
+  res.json({ queue, currentUser, timeLeft });
+});
+
+// Serve React frontend
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use(express.static(path.join(__dirname, "photoism-app", "build")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "photoism-app", "build", "index.html"));
+});
+
 const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
