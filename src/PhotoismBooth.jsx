@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
+import io from "socket.io-client";
 import "./PhotoismBooth.css";
-import kpopHeader from "./assets/kpop.webp"; // ✅ Import the image (must be in src folder)
+import kpopHeader from "./assets/kpop.webp";
+
+// ✅ Connect to your backend (use env variable for production)
+const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000");
 
 function PhotoismBooth() {
   const [queue, setQueue] = useState([]);
@@ -12,11 +16,28 @@ function PhotoismBooth() {
 
   const timerRef = useRef(null);
 
-  // Handle Timer
+  // ✅ Listen for updates from the server
+  useEffect(() => {
+    socket.on("stateUpdate", ({ queue, currentUser, timeLeft }) => {
+      setQueue(queue);
+      setCurrentUser(currentUser);
+      setTimeLeft(timeLeft);
+    });
+
+    return () => {
+      socket.off("stateUpdate");
+    };
+  }, []);
+
+  // ✅ Timer: only the one who clicks Start will emit updates
   useEffect(() => {
     if (isRunning && timeLeft > 0) {
       timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
+        setTimeLeft((prev) => {
+          const newTime = prev - 1;
+          socket.emit("updateTime", newTime); // Sync with server
+          return newTime;
+        });
       }, 1000);
     } else {
       clearInterval(timerRef.current);
@@ -32,26 +53,19 @@ function PhotoismBooth() {
     }
   }, [timeLeft]);
 
+  // ✅ Add user and notify server
   const addUser = () => {
     if (!nameInput.trim()) return;
-    setQueue((prev) => [...prev, nameInput.trim()]);
+    socket.emit("addUser", nameInput.trim());
     setNameInput("");
     setShowFullScreenMessage(true);
     setTimeout(() => setShowFullScreenMessage(false), 5000);
   };
 
+  // ✅ Start next user (host control)
   const startNext = () => {
-    if (queue.length > 0) {
-      const nextUser = queue[0];
-      setCurrentUser(nextUser);
-      setQueue((prev) => prev.slice(1));
-      setTimeLeft(600);
-      setIsRunning(false);
-    } else {
-      setCurrentUser(null);
-      setTimeLeft(600);
-      setIsRunning(false);
-    }
+    socket.emit("startNext");
+    setIsRunning(false);
   };
 
   const startTimer = () => setIsRunning(true);
@@ -65,14 +79,12 @@ function PhotoismBooth() {
 
   return (
     <div className="booth-container">
-      {/* ✅ Fullscreen message */}
       {showFullScreenMessage && (
         <div className="fullscreen-message">
           Please follow the instructions of Photoism or ask KPN staff.
         </div>
       )}
 
-      {/* ✅ Header Image */}
       <header className="booth-header">
         <img src={kpopHeader} alt="K-pop Header" className="kpop-header-img" />
       </header>
