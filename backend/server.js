@@ -1,55 +1,50 @@
 import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
+import { createServer } from "http";
+import { Server } from "socket.io";
 
 const app = express();
-app.use(express.json()); // Parse JSON bodies
+const httpServer = createServer(app);
 
-// Queue and timer state
+const io = new Server(httpServer, {
+  cors: { origin: "*" },
+});
+
 let queue = [];
 let currentUser = null;
-let timeLeft = 600;
+let timeLeft = 600; // default 10 min
 
-// ---- REST Endpoints ----
+io.on("connection", (socket) => {
+  console.log("New client connected:", socket.id);
 
-// Get current state
-app.get("/state", (req, res) => {
-  res.json({ queue, currentUser, timeLeft });
-});
+  // Send current state to new client
+  socket.emit("stateUpdate", { queue, currentUser, timeLeft });
 
-// Add user
-app.post("/addUser", (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: "Name required" });
+  // Add a new user to the queue
+  socket.on("addUser", (name) => {
+    if (!name) return;
+    queue.push(name);
+    io.emit("stateUpdate", { queue, currentUser, timeLeft });
+  });
 
-  queue.push(name);
-  res.json({ queue, currentUser, timeLeft });
-});
+  // Start next user
+  socket.on("startNext", () => {
+    currentUser = queue.shift() || null;
+    timeLeft = 600;
+    io.emit("stateUpdate", { queue, currentUser, timeLeft });
+  });
 
-// Start next user
-app.post("/startNext", (req, res) => {
-  currentUser = queue.shift() || null;
-  timeLeft = 600;
-  res.json({ queue, currentUser, timeLeft });
-});
+  // Timer updates from client
+  socket.on("updateTime", (time) => {
+    if (typeof time === "number") {
+      timeLeft = time;
+      io.emit("stateUpdate", { queue, currentUser, timeLeft });
+    }
+  });
 
-// Update timer
-app.post("/updateTime", (req, res) => {
-  const { time } = req.body;
-  if (time == null) return res.status(400).json({ error: "Time required" });
-
-  timeLeft = time;
-  res.json({ queue, currentUser, timeLeft });
-});
-
-// Serve React frontend
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, "photoism-app", "build")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "photoism-app", "build", "index.html"));
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));

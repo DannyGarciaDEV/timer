@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import io from "socket.io-client";
 import "./PhotoismBooth.css";
 import kpopHeader from "./assets/kpop.webp";
 
-const API_URL = import.meta.env.VITE_API_URL || "https://naratiger.up.railway.app";
+// Connect to backend
+const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000");
 
 function PhotoismBooth() {
   const [queue, setQueue] = useState([]);
@@ -15,37 +16,37 @@ function PhotoismBooth() {
 
   const timerRef = useRef(null);
 
-  // Fetch initial state
+  // Listen for server updates
   useEffect(() => {
-    const fetchState = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/state`);
-        setQueue(res.data.queue);
-        setCurrentUser(res.data.currentUser);
-        setTimeLeft(res.data.timeLeft);
-      } catch (err) {
-        console.error(err);
-      }
+    socket.on("stateUpdate", (state) => {
+      setQueue(state.queue || []);
+      setCurrentUser(state.currentUser || null);
+      setTimeLeft(state.timeLeft ?? 600);
+    });
+
+    return () => {
+      socket.off("stateUpdate");
     };
-    fetchState();
   }, []);
 
-  // Timer interval
+  // Timer logic
   useEffect(() => {
     if (isRunning && timeLeft > 0) {
-      timerRef.current = setInterval(async () => {
+      timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           const newTime = prev - 1;
-          axios.post(`${API_URL}/updateTime`, { time: newTime }).catch(console.error);
+          socket.emit("updateTime", newTime);
           return newTime;
         });
       }, 1000);
     } else {
       clearInterval(timerRef.current);
     }
+
     return () => clearInterval(timerRef.current);
   }, [isRunning, timeLeft]);
 
+  // When timer hits 0, automatically start next
   useEffect(() => {
     if (timeLeft === 0 && currentUser) {
       alert(`${currentUser}'s session ended!`);
@@ -53,31 +54,17 @@ function PhotoismBooth() {
     }
   }, [timeLeft]);
 
-  // Add user
-  const addUser = async () => {
+  const addUser = () => {
     if (!nameInput.trim()) return;
-    try {
-      const res = await axios.post(`${API_URL}/addUser`, { name: nameInput.trim() });
-      setQueue(res.data.queue);
-      setNameInput("");
-      setShowFullScreenMessage(true);
-      setTimeout(() => setShowFullScreenMessage(false), 5000);
-    } catch (err) {
-      console.error(err);
-    }
+    socket.emit("addUser", nameInput.trim());
+    setNameInput("");
+    setShowFullScreenMessage(true);
+    setTimeout(() => setShowFullScreenMessage(false), 5000);
   };
 
-  // Start next user
-  const startNext = async () => {
-    try {
-      const res = await axios.post(`${API_URL}/startNext`);
-      setQueue(res.data.queue);
-      setCurrentUser(res.data.currentUser);
-      setTimeLeft(res.data.timeLeft);
-      setIsRunning(false);
-    } catch (err) {
-      console.error(err);
-    }
+  const startNext = () => {
+    socket.emit("startNext");
+    setIsRunning(false);
   };
 
   const startTimer = () => setIsRunning(true);
@@ -85,7 +72,7 @@ function PhotoismBooth() {
 
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
+    const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
@@ -118,7 +105,11 @@ function PhotoismBooth() {
           </div>
 
           <h3>Queue:</h3>
-          <ul className="queue-list">{queue.map((name, idx) => <li key={idx}>{name}</li>)}</ul>
+          <ul className="queue-list">
+            {(queue || []).map((name, idx) => (
+              <li key={idx}>{name}</li>
+            ))}
+          </ul>
 
           <input
             type="text"
