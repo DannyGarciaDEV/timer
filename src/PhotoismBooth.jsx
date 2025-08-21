@@ -3,7 +3,7 @@ import axios from "axios";
 import "./PhotoismBooth.css";
 import kpopHeader from "./assets/kpop.webp";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API_URL = import.meta.env.VITE_API_URL || "https://naratiger.up.railway.app";
 
 function PhotoismBooth() {
   const [queue, setQueue] = useState([]);
