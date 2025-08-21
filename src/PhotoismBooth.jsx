@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { io } from "socket.io-client";
+import io from "socket.io-client";
 import "./PhotoismBooth.css";
 import kpopHeader from "./assets/kpop.webp";
 
-// Connect to your backend
-const SOCKET_URL = import.meta.env.VITE_API_URL || "https://naratiger.up.railway.app";
-const socket = io(SOCKET_URL, {
-  transports: ["websocket"], // ensures WebSocket connection
-});
+// ✅ Connect to your backend (use env variable for production)
+const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000");
 
 function PhotoismBooth() {
   const [queue, setQueue] = useState([]);
@@ -19,17 +16,7 @@ function PhotoismBooth() {
 
   const timerRef = useRef(null);
 
-  // Debug connection
-  useEffect(() => {
-    socket.on("connect", () => console.log("Connected to backend!", socket.id));
-    socket.on("connect_error", (err) => console.error("Connection error:", err));
-    return () => {
-      socket.off("connect");
-      socket.off("connect_error");
-    };
-  }, []);
-
-  // Listen for state updates from backend
+  // ✅ Listen for updates from the server
   useEffect(() => {
     socket.on("stateUpdate", ({ queue, currentUser, timeLeft }) => {
       setQueue(queue);
@@ -37,33 +24,36 @@ function PhotoismBooth() {
       setTimeLeft(timeLeft);
     });
 
-    return () => socket.off("stateUpdate");
+    return () => {
+      socket.off("stateUpdate");
+    };
   }, []);
 
-  // Timer logic (only for the active session)
+  // ✅ Timer: only the one who clicks Start will emit updates
   useEffect(() => {
-    if (isRunning && currentUser) {
+    if (isRunning && timeLeft > 0) {
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           const newTime = prev - 1;
-          socket.emit("updateTime", newTime); // sync with server
+          socket.emit("updateTime", newTime); // Sync with server
           return newTime;
         });
       }, 1000);
     } else {
       clearInterval(timerRef.current);
     }
-    return () => clearInterval(timerRef.current);
-  }, [isRunning, currentUser]);
 
-  // Auto-next when timer reaches 0
+    return () => clearInterval(timerRef.current);
+  }, [isRunning, timeLeft]);
+
   useEffect(() => {
-    if (timeLeft <= 0 && currentUser) {
+    if (timeLeft === 0 && currentUser) {
       alert(`${currentUser}'s session ended!`);
       startNext();
     }
   }, [timeLeft]);
 
+  // ✅ Add user and notify server
   const addUser = () => {
     if (!nameInput.trim()) return;
     socket.emit("addUser", nameInput.trim());
@@ -72,6 +62,7 @@ function PhotoismBooth() {
     setTimeout(() => setShowFullScreenMessage(false), 5000);
   };
 
+  // ✅ Start next user (host control)
   const startNext = () => {
     socket.emit("startNext");
     setIsRunning(false);
@@ -99,11 +90,12 @@ function PhotoismBooth() {
       </header>
 
       <h1>Photoism Booth</h1>
-
       <div className="booth-main">
         <div className="booth-content">
           <h2>Current User: {currentUser || "Nobody waiting"}</h2>
-          <div className="timer">{currentUser ? formatTime(timeLeft) : "Waiting..."}</div>
+          <div className="timer">
+            {currentUser ? formatTime(timeLeft) : "Waiting..."}
+          </div>
 
           <div className="controls">
             <button onClick={startTimer} disabled={!currentUser || isRunning}>
